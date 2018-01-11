@@ -300,11 +300,13 @@ class VideoTools():
 
 	class ProxyServer:
 		def __init__(self, context):
+			import multiprocessing
+
 			strips = VideoTools.Strips(context)
 			allStrips = strips.allStrips().filterByType('MOVIE')
 			se = bpy.context.scene.sequence_editor_create()
 
-			self.cpuCores = 4
+			self.cpuCores = multiprocessing.cpu_count()
 			self.port = 8081
 			self.host = "localhost"
 			self.clientBlend = "1.blend"
