@@ -277,26 +277,26 @@ class VideoTools():
 				strip.select = (not strip.select)
 
 
-	def removeSpeedFx(context):
-		scene = context.scene
-		activeStrip = scene.sequence_editor.active_strip
-		area = VideoTools.getSequencerArea(context)
-
-		try:
-			SpeedFxName = activeStrip['SpeedFxName']
-		except KeyError:
-			SpeedFxName = ""
-		else:
-			try:
-				effect = VideoTools.getStripByName(context, SpeedFxName)
-			except:
-				pass
-			else:
-				activeStrip.select = False
-				effect.select = True
-				bpy.ops.sequencer.delete({'area': area})
-				activeStrip.select = True
-		activeStrip["SpeedFxName"] = ""
+#	def removeSpeedFx(context):
+#		scene = context.scene
+#		activeStrip = scene.sequence_editor.active_strip
+#		area = VideoTools.getSequencerArea(context)
+#
+#		try:
+#			SpeedFxName = activeStrip['SpeedFxName']
+#		except KeyError:
+#			SpeedFxName = ""
+#		else:
+#			try:
+#				effect = VideoTools.getStripByName(context, SpeedFxName)
+#			except:
+#				pass
+#			else:
+#				activeStrip.select = False
+#				effect.select = True
+#				bpy.ops.sequencer.delete({'area': area})
+#				activeStrip.select = True
+#		activeStrip["SpeedFxName"] = ""
 
 	class ProxyServer:
 		def __init__(self, context):
@@ -304,20 +304,22 @@ class VideoTools():
 			allStrips = strips.allStrips().filterByType('MOVIE')
 			se = bpy.context.scene.sequence_editor_create()
 
-			self.context = context
 			self.cpuCores = 4
-			self.clientsRunning = 0
 			self.port = 8081
 			self.host = "localhost"
-			self.lock = False
 			self.clientBlend = "1.blend"
 			self.clientScript = "client.py"
+
+			self.context = context
+			self.clientsRunning = 0
+			self.lock = False
 			self.scriptPath = re.findall('.*\\\\', inspect.getfile(inspect.currentframe()))[0]
 			self.blenderBinary = bpy.app.binary_path
 			self.videoFiles = list(set([strip.filepath for strip in allStrips]))
 			self.proxyStorage = se.proxy_storage
 			self.filesTotal = len(self.videoFiles)
 			self.doneTotal = 0
+			self.startServer()
 
 		def startServer(self):
 			try:
@@ -326,24 +328,36 @@ class VideoTools():
 				serversocket.listen(1)
 #				self.report({"INFO"}, "Listening on %s:%s" % (self.host, self.port))
 				self.serversocket = serversocket
-				threading.Thread(target = self.read).start()
+				threading.Thread(target = self.listenToClients).start()
 			except OSError:
 				pass
 
-		def read(self):
-			while 1:
+		def listenToClients(self):
+			while self.doneTotal < self.filesTotal:
+#				print("listening...\n")
 				if self.clientsRunning < self.cpuCores:
 					self.startClient()
 					
 				connection, address = self.serversocket.accept()
 				buf = connection.recv(4096).decode("utf-8")
-				print("Done:", self.doneTotal, "/", self.filesTotal, "processing:", buf )
-
 				msg = buf.split(":")
 				
 				if msg[1] == "done" :
+					print("Done:", self.doneTotal, "/", self.filesTotal)
 					self.clientsRunning = self.clientsRunning - 1
 					self.doneTotal = self.doneTotal + 1
+				else:
+					print("Done:", self.doneTotal, "/", self.filesTotal, "processing:", buf )
+
+			if self.doneTotal >= self.filesTotal:
+				self.serversocket.close()
+				self.rebuildProxies()
+#				print("dying...\n")
+
+
+		def rebuildProxies(self):
+			bpy.ops.sequencer.rebuild_proxy()
+
 
 		def startClient(self):
 			try:
@@ -368,22 +382,42 @@ class VideoTools():
 				command += ' -- '
 				command += ' "' + videoPath + '" '
 				command += ' "'+ proxyDir + videoFile + "\\proxy_50.avi" +'" '
+				command += ' "'+ str(bpy.data.scenes['Scene'].render.resolution_x) +'" '
+				command += ' "'+ str(bpy.data.scenes['Scene'].render.resolution_y) +'" '
+				command += ' "'+ str(self.context.scene.vt_props.resRatio) +'" '
+				command += ' "'+ str(self.context.scene.vt_props.quality) +'" '
+
 	#			self.report({"INFO"}, "running: " + command)
 
 				with open(os.devnull, 'w') as tempf:
-					proc = subprocess.Popen(command, stdout=tempf, stderr=tempf)
+					proc = subprocess.Popen(command, stdout=tempf, stderr=tempf)	#silent mode
+#					proc = subprocess.Popen(command)
 
 				self.clientsRunning = self.clientsRunning + 1
 
-			
 class StartServer(bpy.types.Operator):
-	bl_idname = "sequencer.startserver"		
+
+	VTprops.quality = bpy.props.IntProperty(
+		name = "Quality",
+		default = 50,
+		soft_min = 1,
+		soft_max = 100,
+		step = 5
+	)
+	VTprops.resRatio = bpy.props.IntProperty(
+		name = "Resolution ratio",
+		default = 50,
+		soft_min = 25,
+		soft_max = 100,
+		step = 25
+	)
+
+	bl_idname = "sequencer.startserver"
 	bl_options = {'REGISTER'}
 	bl_label = "Start server"
 
 	def execute(self, context):
 		ps = VideoTools.ProxyServer(context)
-		ps.startServer()
 		return {'FINISHED'}
 
 class MoveClipBackward(bpy.types.Operator):
@@ -501,11 +535,7 @@ class OBJECT_PT_SoundToolsPanel(Panel):
 		layout = self.layout
 		scene = context.scene
 		layout.prop(scene.vt_props, "volume", text="Selected clips Volume")
-#		layout.prop(scene.MyPropertyGroup, "custom_Boolean", text="Show waveform")
 		layout.prop(scene.vt_props, "showWaveform", text="Show waveform")
-
-
-
 
 class OBJECT_PT_StripToolsPanel(Panel):
 	bl_idname = "OBJECT_PT_StripToolsPanel"
@@ -526,8 +556,11 @@ class OBJECT_PT_StripToolsPanel(Panel):
 		except KeyError:
 			layout.prop(scene.vt_props, "clipSpeed", text="Clip Speed (fake)")
 		layout.operator("sequencer.speedscript", text="Run speed script")
-		layout.operator("sequencer.startserver", text="Start server")
-		layout.operator("sequencer.sendmsg", text="send server a message")
+#		layout.operator("sequencer.sendmsg", text="send server a message")
+
+		layout.prop(scene.vt_props, "resRatio", text="Resolution ratio")
+		layout.prop(scene.vt_props, "quality", text="Quality")
+		layout.operator("sequencer.startserver", text="Make proxies")
 
 
 

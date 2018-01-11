@@ -1,7 +1,7 @@
 import bpy
 import socket
 import os
-import sys	
+import sys
 
 PORT = 8081
 HOST = "localhost"
@@ -13,6 +13,10 @@ class ProxyClient:
 		argv = sys.argv
 		argv = argv[argv.index("--") + 1:]  # get all args after "--"
 
+		bpy.data.scenes['Scene'].render.resolution_x = int(argv[2])
+		bpy.data.scenes['Scene'].render.resolution_y = int(argv[3])
+		bpy.data.scenes['Scene'].render.resolution_percentage = int(argv[4])
+		bpy.data.scenes['Scene'].render.image_settings.quality = int(argv[5])
 		se = bpy.context.scene.sequence_editor_create()
 		clip = se.sequences.new_movie(name = "mvi", channel = 1, filepath = argv[0], frame_start = 0)
 		bpy.context.scene.frame_end = clip.frame_duration
