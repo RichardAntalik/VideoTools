@@ -276,6 +276,14 @@ class VideoTools():
 			for strip in self:
 				strip.select = (not strip.select)
 
+		def setProxyFiftyOnlyNoOverwrite(self):
+			for strip in self:
+				strip.use_proxy = True
+				strip.proxy.build_50 = True
+				strip.proxy.build_25 = False
+				strip.proxy.build_75 = False
+				strip.proxy.build_100 = False
+				strip.proxy.use_overwrite = False
 
 #	def removeSpeedFx(context):
 #		scene = context.scene
@@ -304,7 +312,9 @@ class VideoTools():
 
 			strips = VideoTools.Strips(context)
 			allStrips = strips.allStrips().filterByType('MOVIE')
-			se = bpy.context.scene.sequence_editor_create()
+
+			allStrips.setProxyFiftyOnlyNoOverwrite()
+			self.se = bpy.context.scene.sequence_editor_create()
 
 			self.cpuCores = multiprocessing.cpu_count()
 			self.port = 8081
@@ -318,7 +328,7 @@ class VideoTools():
 			self.scriptPath = re.findall('.*\\\\', inspect.getfile(inspect.currentframe()))[0]
 			self.blenderBinary = bpy.app.binary_path
 			self.videoFiles = list(set([strip.filepath for strip in allStrips]))
-			self.proxyStorage = se.proxy_storage
+			self.proxyStorage = self.se.proxy_storage
 			self.filesTotal = len(self.videoFiles)
 			self.doneTotal = 0
 			self.startServer()
@@ -371,7 +381,7 @@ class VideoTools():
 				videoDir = os.path.split(videoPath)[0]
 				videoFile = os.path.split(videoPath)[1]
 				if self.proxyStorage == "PROJECT":
-					proxyDir = bpy.path.abspath(se.proxy_dir)
+					proxyDir = bpy.path.abspath(self.se.proxy_dir)
 				else:
 					proxyDir = videoDir + '\\BL_proxy\\'
 
